@@ -1,0 +1,61 @@
+name: Deploy to TaruviBase
+
+on:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+        env:
+          TARUVI_SITE_URL: ${{ vars.TARUVI_SITE_URL }}
+          TARUVI_APP_SLUG: ${{ vars.TARUVI_APP_SLUG }}
+          TARUVI_APP_TITLE: ${{ vars.TARUVI_APP_TITLE }}
+          VITE_TARUVI_SITE_URL: ${{ vars.TARUVI_SITE_URL }}
+          VITE_TARUVI_APP_SLUG: ${{ vars.TARUVI_APP_SLUG }}
+
+      - name: Create ZIP
+        run: cd dist && zip -r ../dist.zip . && cd ..
+
+      - name: Deploy frontend worker
+        id: frontend
+        uses: Taruvi-ai/taruvi-action/frontend-worker@v1
+        with:
+          site-url: ${{ vars.TARUVI_SITE_URL }}
+          api-key: ${{ secrets.TARUVI_API_KEY }}
+          app-slug: ${{ vars.TARUVI_APP_SLUG }}
+          zip-path: dist.zip
+          branch-name: ${{ github.ref_name }}
+
+      - name: Import backend config
+        id: backend
+        uses: Taruvi-ai/taruvi-action/backend@v1
+        with:
+          site-url: ${{ vars.TARUVI_SITE_URL }}
+          api-key: ${{ secrets.TARUVI_API_KEY }}
+          config-dir: .taruvi-backend
+
+      - name: Summary
+        run: |
+          echo "Frontend: ${{ steps.frontend.outputs.frontend-url }}"
+          echo "Backend:  ${{ steps.backend.outputs.status }}"
